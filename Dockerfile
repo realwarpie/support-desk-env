@@ -12,4 +12,4 @@ COPY . /app
 
 EXPOSE 8000
 
-CMD ["uvicorn", "env:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "env:app", "--host", "0.0.0.0", "--port", "7860"]
