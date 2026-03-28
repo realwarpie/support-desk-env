@@ -1,0 +1,24 @@
+name: SupportDeskEnv
+version: 1.0.0
+description: OpenEnv-compatible customer support inbox simulator for e-commerce workflows.
+author: support-desk-team
+constraints:
+  cpu: "2 vCPU"
+  memory: "8GB"
+  max_inference_runtime_minutes: 20
+entrypoint:
+  type: python
+  module: env
+  class: SupportDeskEnv
+server:
+  command: uvicorn env:app --host 0.0.0.0 --port 8000
+observation_model: Observation
+action_model: Action
+reward_model: Reward
+tasks:
+  - id: easy_classify_001
+    difficulty: easy
+  - id: medium_response_001
+    difficulty: medium
+  - id: hard_resolution_001
+    difficulty: hard
