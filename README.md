@@ -1,3 +1,13 @@
+---
+title: SupportDeskEnv
+emoji: 🤖
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_file: env.py
+pinned: false
+---
+
 # SupportDeskEnv
 
 An OpenEnv-compatible, deterministic customer support simulation for benchmarking LLM agents on realistic multi-step service workflows.
