@@ -1,0 +1,11 @@
+[project]
+name = "support-desk-env"
+version = "0.1.0"
+description = "OpenEnv-compatible customer support simulation environment for LLM agent evaluation"
+authors = [
+    {name = "Ashwin"}
+]
+requires-python = ">=3.10"
+
+[tool.openenv]
+entrypoint = "env:app"
