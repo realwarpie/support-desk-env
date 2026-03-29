@@ -1,11 +1,19 @@
 [project]
 name = "support-desk-env"
 version = "0.1.0"
-description = "OpenEnv-compatible customer support simulation environment for LLM agent evaluation"
-authors = [
-    {name = "Ashwin"}
-]
+description = "OpenEnv-compatible customer support simulation"
+authors = [{name = "Ashwin"}]
 requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "openai",
+    "openenv-core>=0.2.0"
+]
+
+[project.scripts]
+server = "env:app"
 
 [tool.openenv]
 entrypoint = "env:app"
