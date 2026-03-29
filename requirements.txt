@@ -3,3 +3,4 @@ openai==1.107.2
 pydantic==2.11.7
 PyYAML==6.0.2
 uvicorn==0.35.0
+openenv-core>=0.2.0
