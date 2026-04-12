@@ -639,6 +639,18 @@ app = FastAPI(title="SupportDeskEnv", version="1.0.0")
 ENV = SupportDeskEnv()
 
 
+@app.get("/")
+def root() -> Dict[str, str]:
+    """Lightweight root endpoint for platform health probes."""
+    return {"status": "ok", "service": "SupportDeskEnv"}
+
+
+@app.get("/health")
+def health() -> Dict[str, str]:
+    """Explicit health endpoint for infra checks."""
+    return {"status": "ok"}
+
+
 @app.get("/tasks")
 def list_tasks() -> Dict[str, Dict[str, str]]:
     return {
