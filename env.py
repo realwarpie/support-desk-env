@@ -157,7 +157,8 @@ class SupportDeskEnv:
             + invalid_penalty
             + invalid_limit_penalty
         )
-        step_reward_value = max(-1.0, min(1.0, step_reward_value))
+        # Keep validator-facing task scores away from exact boundary values.
+        step_reward_value = max(0.01, min(0.99, step_reward_value))
 
         self._prev_score = current_score
         feedback = cast(List[str], grade["feedback"]) + parse_feedback
