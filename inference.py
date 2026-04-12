@@ -217,6 +217,7 @@ def run_task(
     done = False
     step = 0
     success = False
+    final_score = 0.0
     rewards: List[float] = []
 
     print(f"[START] task={task_id} env={benchmark} model={model_name}")
@@ -244,6 +245,7 @@ def run_task(
             observation, reward, done, info = env.step(action)
             step += 1
             rewards.append(float(reward.score))
+            final_score = float(info.get("grader_score", reward.score))
             error_value = _extract_last_action_error(info)
 
             print(
@@ -273,7 +275,10 @@ def run_task(
                 LOGGER.debug("env_close_failed", exc_info=True)
 
         rewards_str = ",".join(_fmt_reward(r) for r in rewards)
-        print(f"[END] success={_fmt_bool(success)} steps={step} rewards={rewards_str}")
+        print(
+            f"[END] success={_fmt_bool(success)} steps={step} "
+            f"score={_fmt_reward(final_score)} rewards={rewards_str}"
+        )
 
 
 def main() -> None:

@@ -18,7 +18,10 @@ reward_model: Reward
 tasks:
   - id: easy_classify_001
     difficulty: easy
+    grader: graders.task_graders.grade_easy
   - id: medium_response_001
     difficulty: medium
+    grader: graders.task_graders.grade_medium
   - id: hard_resolution_001
     difficulty: hard
+    grader: graders.task_graders.grade_hard
