@@ -7,8 +7,8 @@ from tasks import TaskSpec
 
 
 def _clamp_01(value: float) -> float:
-    """Clamp score into [0.0, 1.0]."""
-    return max(0.0, min(1.0, value))
+    """Clamp score into strict open interval (0.0, 1.0)."""
+    return max(0.01, min(0.99, value))
 
 
 def _keyword_match_score(text: str, keywords: List[str]) -> Tuple[float, List[str]]:
