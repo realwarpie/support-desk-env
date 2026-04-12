@@ -5,7 +5,6 @@ import logging
 import os
 import random
 import re
-from statistics import mean
 from typing import Any, Dict, List, Optional
 
 from env import SupportDeskEnv
@@ -15,6 +14,10 @@ from tasks import TASKS
 
 LOGGER = logging.getLogger("support_desk_inference")
 DEFAULT_MAX_EPISODE_STEPS = 10
+DEFAULT_API_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_MODEL_NAME = "gpt-4o-mini"
+DEFAULT_TASK_ID = "easy_classify_001"
+DEFAULT_BENCHMARK = "supportdesk"
 
 
 def _is_debug_enabled() -> bool:
@@ -32,7 +35,12 @@ def _setup_logging(debug: bool) -> None:
     if debug:
         logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     else:
-        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+        logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+    # Keep protocol output clean by muting SDK transport logs in normal runs.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("openai").setLevel(logging.WARNING)
 
 
 def _build_prompt(observation: Observation) -> str:
@@ -168,130 +176,140 @@ def _model_action(client: Any, model_name: str, observation: Observation, timeou
     return _parse_action_or_none(raw)
 
 
+def _fmt_bool(value: bool) -> str:
+    """Format bool using required lowercase protocol values."""
+    return "true" if value else "false"
+
+
+def _fmt_reward(value: float) -> str:
+    """Format reward using fixed two decimal places."""
+    return f"{value:.2f}"
+
+
+def _format_action(action: Action) -> str:
+    """Build a compact action string for protocol logging."""
+    payload = action.model_dump(exclude_none=True)
+    action_type = str(payload.pop("action_type", "unknown"))
+    if not payload:
+        return action_type
+    args = ", ".join(f"{key}={json.dumps(value, ensure_ascii=True)}" for key, value in payload.items())
+    return f"{action_type}({args})"
+
+
+def _extract_last_action_error(info: Dict[str, Any]) -> str:
+    """Return raw last_action_error text when available, else protocol null."""
+    error = info.get("last_action_error")
+    if error is None:
+        return "null"
+    return str(error)
+
+
 def run_task(
     env: SupportDeskEnv,
     task_id: str,
+    benchmark: str,
     client: Any,
     model_name: str,
     max_episode_steps: int,
     model_timeout_seconds: int,
-) -> Dict[str, Any]:
-    """Run one task episode and return deterministic summary metrics."""
-    observation = env.reset(task_id)
+) -> None:
+    """Run one task episode and emit strict protocol lines to stdout."""
     done = False
-    total_reward = 0.0
-    last_info: Dict[str, Any] = {}
-    step_rewards: List[float] = []
     step = 0
-    fallback_uses = 0
+    success = False
+    rewards: List[float] = []
 
-    step_cap = min(max_episode_steps, TASKS[task_id].max_steps)
-    LOGGER.debug("task_start | task_id=%s | step_cap=%s", task_id, step_cap)
+    print(f"[START] task={task_id} env={benchmark} model={model_name}")
 
-    while not done and step < step_cap:
-        if client is None:
-            action = _safe_default_action(task_id, step)
-            fallback_uses += 1
-        else:
-            try:
-                parsed_action = _model_action(
-                    client=client,
-                    model_name=model_name,
-                    observation=observation,
-                    timeout_seconds=model_timeout_seconds,
-                )
-                if parsed_action is None:
-                    action = _safe_default_action(task_id, step)
-                    fallback_uses += 1
-                else:
-                    action = parsed_action
-            except Exception:
+    try:
+        observation = env.reset(task_id)
+        step_cap = min(max_episode_steps, TASKS[task_id].max_steps)
+        LOGGER.debug("task_start | task_id=%s | step_cap=%s", task_id, step_cap)
+
+        while not done and step < step_cap:
+            if client is None:
                 action = _safe_default_action(task_id, step)
-                fallback_uses += 1
+            else:
+                try:
+                    parsed_action = _model_action(
+                        client=client,
+                        model_name=model_name,
+                        observation=observation,
+                        timeout_seconds=model_timeout_seconds,
+                    )
+                    action = parsed_action if parsed_action is not None else _safe_default_action(task_id, step)
+                except Exception:
+                    action = _safe_default_action(task_id, step)
 
-        observation, reward, done, info = env.step(action)
-        total_reward += reward.score
-        step_rewards.append(reward.score)
-        last_info = info
-        LOGGER.debug(
-            "task_step | task_id=%s | step=%s | action=%s | reward=%s | done=%s",
-            task_id,
-            step,
-            action.model_dump(exclude_none=True),
-            reward.score,
-            done,
-        )
-        step += 1
+            observation, reward, done, info = env.step(action)
+            step += 1
+            rewards.append(float(reward.score))
+            error_value = _extract_last_action_error(info)
 
-    terminated_by_cap = (not done) and step >= step_cap
-    return {
-        "task_id": task_id,
-        "difficulty": TASKS[task_id].difficulty,
-        "steps": step,
-        "max_steps_used": step_cap,
-        "cumulative_reward": round(total_reward, 4),
-        "mean_step_reward": round(mean(step_rewards), 4) if step_rewards else 0.0,
-        "grader_score": round(float(last_info.get("grader_score", 0.0)), 4),
-        "final_outcome_quality": round(float(last_info.get("final_outcome_quality", 0.0)), 4),
-        "fallback_action_count": fallback_uses,
-        "terminated_by_cap": terminated_by_cap,
-        "termination": last_info.get("termination", "completed" if done else "step_cap_reached"),
-    }
+            print(
+                f"[STEP] step={step} action={_format_action(action)} "
+                f"reward={_fmt_reward(float(reward.score))} "
+                f"done={_fmt_bool(bool(done))} error={error_value}"
+            )
+
+            LOGGER.debug(
+                "task_step | task_id=%s | step=%s | action=%s | reward=%s | done=%s",
+                task_id,
+                step,
+                action.model_dump(exclude_none=True),
+                reward.score,
+                done,
+            )
+
+        success = bool(done)
+    except Exception:
+        success = False
+    finally:
+        close_fn = getattr(env, "close", None)
+        if callable(close_fn):
+            try:
+                close_fn()
+            except Exception:
+                LOGGER.debug("env_close_failed", exc_info=True)
+
+        rewards_str = ",".join(_fmt_reward(r) for r in rewards)
+        print(f"[END] success={_fmt_bool(success)} steps={step} rewards={rewards_str}")
 
 
 def main() -> None:
-    """Run baseline inference over all tasks with reproducible settings."""
-    api_base_url = os.getenv("API_BASE_URL")
-    model_name = os.getenv("MODEL_NAME", "gpt-4o-mini")
+    """Run one deterministic task episode with strict output protocol."""
+    api_base_url = os.getenv("API_BASE_URL", DEFAULT_API_BASE_URL)
+    model_name = os.getenv("MODEL_NAME", DEFAULT_MODEL_NAME)
     hf_token = os.getenv("HF_TOKEN")
+    if not hf_token:
+        raise ValueError("HF_TOKEN environment variable is required")
+
     seed = int(os.getenv("SEED", "42"))
     debug = _is_debug_enabled()
     max_episode_steps = int(os.getenv("MAX_EPISODE_STEPS", str(DEFAULT_MAX_EPISODE_STEPS)))
     model_timeout_seconds = int(os.getenv("MODEL_TIMEOUT_SECONDS", "25"))
+    task_id = os.getenv("TASK_ID", DEFAULT_TASK_ID)
+    benchmark = os.getenv("BENCHMARK", DEFAULT_BENCHMARK)
+
+    if task_id not in TASKS:
+        raise ValueError(f"Unknown TASK_ID: {task_id}")
 
     _setup_logging(debug)
     _configure_reproducibility(seed)
 
-    client: Any = None
-    if api_base_url and hf_token:
-        try:
-            from openai import OpenAI  # pyright: ignore[reportMissingImports]
+    from openai import OpenAI  # pyright: ignore[reportMissingImports]
 
-            client = OpenAI(base_url=api_base_url, api_key=hf_token)
-        except Exception:
-            client = None
+    client: Any = OpenAI(base_url=api_base_url, api_key=hf_token)
 
     env = SupportDeskEnv(debug=debug)
-    ordered_task_ids = sorted(TASKS.keys())
-    results = [
-        run_task(
-            env=env,
-            task_id=task_id,
-            client=client,
-            model_name=model_name,
-            max_episode_steps=max_episode_steps,
-            model_timeout_seconds=model_timeout_seconds,
-        )
-        for task_id in ordered_task_ids
-    ]
-
-    print("SupportDeskEnv baseline results (deterministic run)")
-    for row in results:
-        print(json.dumps(row, indent=2))
-
-    avg = mean(r["grader_score"] for r in results)
-    avg_reward = mean(r["cumulative_reward"] for r in results)
-    total_fallback = sum(int(r["fallback_action_count"]) for r in results)
-    print(
-        json.dumps(
-            {
-                "average_grader_score": round(avg, 4),
-                "average_cumulative_reward": round(avg_reward, 4),
-                "total_fallback_actions": total_fallback,
-                "seed": seed,
-            },
-            indent=2,
-        )
+    run_task(
+        env=env,
+        task_id=task_id,
+        benchmark=benchmark,
+        client=client,
+        model_name=model_name,
+        max_episode_steps=max_episode_steps,
+        model_timeout_seconds=model_timeout_seconds,
     )
 
 
